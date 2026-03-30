@@ -1,0 +1,348 @@
+openapi: "3.0.3"
+info:
+  title: Account Service API
+  description: Gestión de cuentas bancarias con reglas por tipo de cliente
+  version: "1.0.0"
+
+servers:
+  - url: http://localhost:8082
+    description: Local
+
+tags:
+  - name: Accounts
+    description: Operaciones sobre cuentas bancarias
+
+paths:
+
+  /accounts:
+    get:
+      tags: [Accounts]
+      summary: Listar todas las cuentas activas
+      operationId: getAllAccounts
+      responses:
+        "200":
+          description: Lista de cuentas
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AccountResponse'
+
+    post:
+      tags: [Accounts]
+      summary: Crear cuenta bancaria
+      operationId: createAccount
+      description: >
+        Reglas de negocio:
+        PERSONAL: máx 1 AHORRO, máx 1 CORRIENTE, ilimitadas PLAZO_FIJO.
+        EMPRESARIAL: solo CORRIENTE, múltiples permitidas.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AccountRequest'
+      responses:
+        "201":
+          description: Cuenta creada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountResponse'
+        "400":
+          $ref: '#/components/responses/BadRequest'
+        "404":
+          $ref: '#/components/responses/NotFound'
+        "422":
+          $ref: '#/components/responses/BusinessRuleViolation'
+
+  /accounts/{id}:
+    get:
+      tags: [Accounts]
+      summary: Obtener cuenta por ID
+      operationId: getAccountById
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        "200":
+          description: Cuenta encontrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountResponse'
+        "404":
+          $ref: '#/components/responses/NotFound'
+
+    put:
+      tags: [Accounts]
+      summary: Actualizar cuenta
+      operationId: updateAccount
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AccountUpdateRequest'
+      responses:
+        "200":
+          description: Cuenta actualizada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountResponse'
+        "404":
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags: [Accounts]
+      summary: Desactivar cuenta (soft delete)
+      operationId: deleteAccount
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        "204":
+          description: Cuenta desactivada
+        "404":
+          $ref: '#/components/responses/NotFound'
+
+  /accounts/customer/{customerId}:
+    get:
+      tags: [Accounts]
+      summary: Obtener cuentas activas de un cliente
+      operationId: getAccountsByCustomer
+      parameters:
+        - name: customerId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Cuentas del cliente
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AccountResponse'
+  /accounts/{id}/deposit:
+    patch:
+      tags: [ Accounts ]
+      summary: Depositar saldo en cuenta
+      operationId: depositToAccount
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BalanceOperationRequest'
+      responses:
+        "200":
+          description: Depósito realizado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountResponse'
+        "404":
+          $ref: '#/components/responses/NotFound'
+
+  /accounts/{id}/withdraw:
+    patch:
+      tags: [ Accounts ]
+      summary: Retirar saldo de cuenta
+      operationId: withdrawFromAccount
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BalanceOperationRequest'
+      responses:
+        "200":
+          description: Retiro realizado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountResponse'
+        "404":
+          $ref: '#/components/responses/NotFound'
+        "422":
+          $ref: '#/components/responses/BusinessRuleViolation'
+
+components:
+
+  parameters:
+    Id:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+
+  schemas:
+
+    AccountType:
+      type: string
+      enum: [AHORRO, CORRIENTE, PLAZO_FIJO, AHORRO_VIP, CORRIENTE_PYME]
+
+    AccountStatus:
+      type: string
+      enum: [ACTIVE, INACTIVE, BLOCKED]
+
+    AccountRequest:
+      type: object
+      required: [customerId, accountType]
+      properties:
+        customerId:
+          type: string
+          description: ID del cliente en customer-service
+        accountType:
+          $ref: '#/components/schemas/AccountType'
+        initialBalance:
+          type: number
+          format: double
+          minimum: 0
+          default: 0
+        maintenanceFee:
+          type: number
+          format: double
+          minimum: 0
+          default: 0
+        transactionLimit:
+          type: integer
+          description: Máximo movimientos mensuales (aplica a AHORRO)
+          minimum: 0
+        holders:
+          type: array
+          description: Titulares — requerido para EMPRESARIAL
+          items:
+            $ref: '#/components/schemas/AccountHolder'
+        authorizedSigners:
+          type: array
+          description: Firmantes autorizados — solo EMPRESARIAL
+          items:
+            $ref: '#/components/schemas/AuthorizedSigner'
+
+    AccountUpdateRequest:
+      type: object
+      properties:
+        maintenanceFee:
+          type: number
+          format: double
+          minimum: 0
+        transactionLimit:
+          type: integer
+          minimum: 0
+        status:
+          $ref: '#/components/schemas/AccountStatus'
+
+    AccountResponse:
+      type: object
+      properties:
+        id:
+          type: string
+        customerId:
+          type: string
+        accountType:
+          $ref: '#/components/schemas/AccountType'
+        accountNumber:
+          type: string
+        balance:
+          type: number
+          format: double
+        maintenanceFee:
+          type: number
+          format: double
+        transactionLimit:
+          type: integer
+        totalCommissions:
+          type: number
+          format: double
+        status:
+          $ref: '#/components/schemas/AccountStatus'
+        holders:
+          type: array
+          items:
+            $ref: '#/components/schemas/AccountHolder'
+        authorizedSigners:
+          type: array
+          items:
+            $ref: '#/components/schemas/AuthorizedSigner'
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    AccountHolder:
+      type: object
+      required: [ customerId, fullName ]
+      properties:
+        customerId:
+          type: string
+        fullName:
+          type: string
+
+    AuthorizedSigner:
+      type: object
+      required: [ documentNumber, fullName ]
+      properties:
+        documentNumber:
+          type: string
+        fullName:
+          type: string
+        email:
+          type: string
+          format: email
+
+    ErrorResponse:
+      type: object
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+        status:
+          type: integer
+        error:
+          type: string
+        message:
+          type: string
+        path:
+          type: string
+
+    BalanceOperationRequest:
+      type: object
+      required: [ amount ]
+      properties:
+        amount:
+          type: number
+          format: double
+          minimum: 0.01
+
+  responses:
+    BadRequest:
+      description: Datos inválidos
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    NotFound:
+      description: Cuenta o cliente no encontrado
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    BusinessRuleViolation:
+      description: Violación de regla de negocio
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
